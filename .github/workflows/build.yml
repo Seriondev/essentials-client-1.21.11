@@ -168,6 +168,23 @@ jobs:
           import javazoom.jl.decoder.SampleBuffer;
           import net.minecraft.item.ItemStack;
           import java.util.Random;
+          import net.minecraft.entity.Entity;
+          import java.net.URI;
+          import java.net.URLEncoder;
+          import java.net.http.HttpClient;
+          import java.net.http.HttpRequest;
+          import java.net.http.HttpResponse;
+          import java.nio.file.StandardCopyOption;
+          import java.time.Duration;
+          import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
+          import net.minecraft.entity.player.PlayerEntity;
+          import net.minecraft.util.ActionResult;
+          import net.minecraft.text.MutableText;
+          import net.minecraft.util.Formatting;
+          import net.minecraft.entity.LivingEntity;
+          import net.minecraft.client.gl.RenderPipelines;
+          import java.util.LinkedHashMap;
+          import net.minecraft.client.font.TextRenderer;
           import net.minecraft.client.gui.PlayerSkinDrawer;
           import net.minecraft.client.gui.screen.GameMenuScreen;
           import net.minecraft.client.gui.screen.TitleScreen;
@@ -277,6 +294,10 @@ jobs:
                           Music.tick();
                       } catch (Throwable ignored) {
                       }
+                      try {
+                          KillStreak.tick(client);
+                      } catch (Throwable ignored) {
+                      }
                       if (openRequested) {
                           openRequested = false;
                           client.setScreen(new ConfigScreen(null));
@@ -284,6 +305,19 @@ jobs:
                   });
 
                   HudExtras.init();
+                  AttackEntityCallback.EVENT.register((player, world, hand, entity, hit) -> {
+                      try {
+                          MinecraftClient mc = MinecraftClient.getInstance();
+                          if (player == mc.player && entity instanceof PlayerEntity pe && pe != mc.player) {
+                              KillStreak.onAttack(pe);
+                          }
+                          if (player == mc.player && entity instanceof PlayerEntity && entity != mc.player && Config.get().hitSound) {
+                              HitSound.play();
+                          }
+                      } catch (Throwable ignored) {
+                      }
+                      return ActionResult.PASS;
+                  });
 
                   // Daftarkan layer cosmetic ke renderer player
                   LivingEntityFeatureRendererRegistrationCallback.EVENT.register((entityType, entityRenderer, registrationHelper, context) -> {
@@ -343,6 +377,7 @@ jobs:
               private static final int ICON_HEAD = 4;
               private static final int ICON_ARROW = 5;
               private static final int ICON_NOTE = 6;
+              private static final int ICON_CAMERA = 7;
 
               private static final class Spec {
                   final int x;
@@ -397,6 +432,8 @@ jobs:
                   int setY = Math.round(222f / 360f * sh);
                   specs.add(new Spec(rightX, setY, 80, 20, "Settings", ICON_SLIDERS,
                           () -> client.setScreen(new ConfigScreen(screen))));
+                  specs.add(new Spec(rightX, setY - 24, 80, 20, "Foto", ICON_CAMERA,
+                          () -> client.setScreen(new ScreenshotScreen(screen))));
                   specs.add(new Spec(rightX - 46, setY, 19, 20, "", ICON_NOTE,
                           () -> client.setScreen(new MusicScreen(screen))));
                   specs.add(new Spec(rightX - 23, setY, 19, 20, "", ICON_FOLDER,
@@ -476,8 +513,8 @@ jobs:
 
               private static void drawSpec(DrawContext ctx, Spec sp, int mx, int my) {
                   boolean hover = mx >= sp.x && mx < sp.x + sp.w && my >= sp.y && my < sp.y + sp.h;
-                  ctx.fill(sp.x, sp.y, sp.x + sp.w, sp.y + sp.h, 0xFF58585E);
-                  ctx.fill(sp.x + 1, sp.y + 1, sp.x + sp.w - 1, sp.y + sp.h - 1, hover ? 0xFF3E3E44 : 0xFF2B2B30);
+                  GlassKit.box(ctx, sp.x, sp.y, sp.x + sp.w, sp.y + sp.h, 0xFF58585E);
+                  GlassKit.box(ctx, sp.x + 1, sp.y + 1, sp.x + sp.w - 1, sp.y + sp.h - 1, hover ? 0xFF3E3E44 : 0xFF2B2B30);
                   var tr = MinecraftClient.getInstance().textRenderer;
                   int ty = sp.y + (sp.h - 8) / 2;
                   int tx = sp.icon == ICON_HEAD ? sp.x + 18 : sp.x + 8;
@@ -490,9 +527,9 @@ jobs:
                           int iy = sp.y + 6;
                           for (int r = 0; r < 3; r++) {
                               int ly = iy + r * 3;
-                              ctx.fill(ix, ly, ix + 9, ly + 1, 0xFFE8E8E8);
+                              GlassKit.box(ctx, ix, ly, ix + 9, ly + 1, 0xFFE8E8E8);
                               int kx = ix + (r == 0 ? 2 : (r == 1 ? 5 : 3));
-                              ctx.fill(kx, ly - 1, kx + 2, ly + 2, 0xFFE8E8E8);
+                              GlassKit.box(ctx, kx, ly - 1, kx + 2, ly + 2, 0xFFE8E8E8);
                           }
                           break;
                       }
@@ -511,6 +548,10 @@ jobs:
                               art(ctx, sp.x + 5, sp.y + 6, new String[]{
                                       "hhhhhhhh", "hhhhhhhh", "hssssssh", "sbssssbs", "ssssssss", "ssssssss", "ssssssss", "ssssssss"});
                           }
+                          break;
+                      case ICON_CAMERA:
+                          art(ctx, sp.x + (sp.w - 7) / 2, sp.y + 5, new String[]{
+                                  "..###..", "#######", "#.....#", "#..#..#", "#.....#", "#######"});
                           break;
                       case ICON_NOTE:
                           art(ctx, sp.x + (sp.w - 6) / 2, sp.y + 5, new String[]{
@@ -571,6 +612,14 @@ jobs:
                   public int musicVolume = 80;
                   public int musicRepeat = 0;
                   public boolean musicShuffle = false;
+                  public int killStyle = 0;
+                  public int killColor = 0;
+                  public boolean killStreak = true;
+                  public int killSoundVolume = 80;
+                  public String killSoundFile = "";
+                  public boolean hitSound = true;
+                  public int hitSoundVolume = 80;
+                  public String hitSoundFile = "";
                   public List<String> accounts = new ArrayList<>();
                   public String currentAccount = "";
 
@@ -647,6 +696,9 @@ jobs:
                           activePlaylist = -1;
                       }
                       musicRepeat = Math.max(0, Math.min(2, musicRepeat));
+                      killStyle = Math.max(0, Math.min(3, killStyle));
+                      killColor = Math.max(0, Math.min(6, killColor));
+                      killSoundVolume = Math.max(0, Math.min(100, killSoundVolume));
                       if (accounts == null) {
                           accounts = new ArrayList<>();
                       }
@@ -1057,226 +1109,402 @@ jobs:
               // ------------------------------------------------------------------
               // GUI
               // ------------------------------------------------------------------
+              /** helper kartu kaca bersama untuk semua layar */
+              public static final class GlassKit {
+                  public static final int BLUE = 0xFF3B82F6;
+                  public static final int OFF = 0xFF3A3F47;
+                  public static final int CARD = 0xD0101418;
+
+                  private GlassKit() {
+                  }
+
+                  public static void card(DrawContext c, TextRenderer tr, int x, int y, int w, int h, String title, int accent) {
+                      ConfigScreen.rr(c, x, y, w, h, 10, CARD);
+                      c.fill(x + 10, y + 1, x + w - 10, y + 2, 0x55FFFFFF);
+                      ConfigScreen.rr(c, x + 10, y + 10, 6, 6, 3, accent);
+                      c.drawTextWithShadow(tr, Text.literal(title), x + 22, y + 9, 0xFFFFFFFF);
+                      c.fill(x + 10, y + 26, x + w - 10, y + 27, 0x22FFFFFF);
+                  }
+
+                  public static void row(DrawContext c, TextRenderer tr, int x, int y, int w, int h, String label, boolean hover) {
+                      if (hover) {
+                          ConfigScreen.rr(c, x, y, w, h, 5, 0x26FFFFFF);
+                      }
+                      c.drawTextWithShadow(tr, Text.literal(label), x + 6, y + (h - 8) / 2, 0xFFE6E8EB);
+                  }
+
+                  public static void toggle(DrawContext c, TextRenderer tr, int mx, int my, int x, int y, int w, int h, String label, boolean on) {
+                      row(c, tr, x, y, w, h, label, hov(mx, my, x, y, w, h));
+                      int pw = 24;
+                      int ph = 11;
+                      int px = x + w - pw - 6;
+                      int py = y + (h - ph) / 2;
+                      ConfigScreen.rr(c, px, py, pw, ph, 5, on ? BLUE : OFF);
+                      int kx = on ? px + pw - ph + 1 : px + 1;
+                      ConfigScreen.rr(c, kx, py + 1, ph - 2, ph - 2, 4, 0xFFFFFFFF);
+                  }
+
+                  public static void action(DrawContext c, TextRenderer tr, int mx, int my, int x, int y, int w, int h, String label, String value) {
+                      row(c, tr, x, y, w, h, label, hov(mx, my, x, y, w, h));
+                      int right = x + w - 6;
+                      if (value != null && !value.isEmpty()) {
+                          int vw = tr.getWidth(value);
+                          c.drawTextWithShadow(tr, Text.literal(value), right - 12 - vw, y + (h - 8) / 2, 0xFFBFC5CE);
+                      }
+                      c.drawTextWithShadow(tr, Text.literal(">"), right - 6, y + (h - 8) / 2, 0xFF8FB8FF);
+                  }
+
+                  public static void box(DrawContext c, int x1, int y1, int x2, int y2, int col) {
+                      int w = x2 - x1;
+                      int h = y2 - y1;
+                      if (w <= 0 || h <= 0) {
+                          return;
+                      }
+                      int r = Math.min(4, Math.min(w, h) / 2);
+                      ConfigScreen.rr(c, x1, y1, w, h, r, col);
+                  }
+
+                  public static boolean hov(int mx, int my, int x, int y, int w, int h) {
+                      return mx >= x && mx < x + w && my >= y && my < y + h;
+                  }
+              }
+
+              /** slider bergaya kaca: tetap slider (bisa digeser), tampilan digambar ulang */
+              private static final class GlassSlider extends SliderWidget {
+                  private final String label;
+                  private final int min;
+                  private final int max;
+                  private final IntConsumer setter;
+
+                  GlassSlider(int x, int y, int w, int h, String label, int min, int max, int cur, IntConsumer setter) {
+                      super(x, y, w, h, Text.empty(), (cur - min) / (double) (max - min));
+                      this.label = label;
+                      this.min = min;
+                      this.max = max;
+                      this.setter = setter;
+                  }
+
+                  private int current() {
+                      return this.min + (int) Math.round(this.value * (this.max - this.min));
+                  }
+
+                  @Override
+                  protected void updateMessage() {
+                      this.setMessage(Text.empty());
+                  }
+
+                  @Override
+                  protected void applyValue() {
+                      if (this.setter != null) {
+                          this.setter.accept(current());
+                      }
+                  }
+
+                  @Override
+                  public void renderWidget(DrawContext c, int mouseX, int mouseY, float delta) {
+                      int x = this.getX();
+                      int y = this.getY();
+                      int w = this.getWidth();
+                      int h = this.getHeight();
+                      boolean hover = mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + h;
+                      if (hover) {
+                          ConfigScreen.rr(c, x, y, w, h, 5, 0x26FFFFFF);
+                      }
+                      String val = String.valueOf(current());
+                      c.drawTextWithShadow(MinecraftClient.getInstance().textRenderer,
+                              Text.literal(label), x + 6, y + (h - 8) / 2, 0xFFE6E8EB);
+                      int vw = MinecraftClient.getInstance().textRenderer.getWidth(val);
+                      c.drawTextWithShadow(MinecraftClient.getInstance().textRenderer,
+                              Text.literal(val), x + w - 8 - vw, y + (h - 8) / 2, 0xFFBFC5CE);
+                      int tx = x + 6;
+                      int tw = w - 12;
+                      int ty = y + h - 4;
+                      ConfigScreen.rr(c, tx, ty, tw, 3, 1, OFF_TRACK);
+                      int fill = (int) Math.round(tw * this.value);
+                      if (fill > 0) {
+                          ConfigScreen.rr(c, tx, ty, Math.max(3, fill), 3, 1, BLUE_TRACK);
+                      }
+                      int kx = tx + fill - 4;
+                      ConfigScreen.rr(c, kx, ty - 3, 8, 8, 4, 0xFFFFFFFF);
+                  }
+
+                  private static final int OFF_TRACK = 0x33FFFFFF;
+                  private static final int BLUE_TRACK = 0xFF3B82F6;
+              }
+
               public static final class ConfigScreen extends Screen {
+                  private static final int BLUE = 0xFF3B82F6;
+                  private static final int OFF = 0xFF3A3F47;
+                  private static final int CARD = 0xD0101418;
                   private static final String[] BASE_NAMES = {"Kepala", "Badan", "Tangan kanan", "Tangan kiri", "Kaki kanan", "Kaki kiri"};
                   private static final String[] OUTER_NAMES = {"Hat", "Jacket", "Lengan kanan", "Lengan kiri", "Celana kanan", "Celana kiri"};
 
                   private final Screen parent;
-                  private int page = 0; // 0 utama, 1 bagian tubuh, 2 cosmetic
                   private int cosPage = 0;
-                  private int headerY = 20;
-                  private int leftCenterX = 0;
-                  private int rightCenterX = 0;
+                  private int cardsY;
+                  private int cardsH;
+                  private int cw;
+                  private int gap = 10;
+                  private int x0;
 
                   public ConfigScreen(Screen parent) {
-                      super(Text.literal("Skin Transparan"));
+                      super(Text.literal("Setting Mod"));
                       this.parent = parent;
                   }
 
                   public ConfigScreen(Screen parent, int startPage) {
                       this(parent);
-                      this.page = startPage;
+                  }
+
+                  private int cardX(int i) {
+                      return x0 + i * (cw + gap);
+                  }
+
+                  private void button(int x, int y, int w, int h, Runnable r) {
+                      ButtonWidget b = ButtonWidget.builder(Text.empty(), btn -> r.run()).dimensions(x, y, w, h).build();
+                      b.setAlpha(0f);
+                      this.addDrawableChild(b);
+                  }
+
+                  private static int clamp(int v, int lo, int hi) {
+                      return Math.max(lo, Math.min(hi, v));
                   }
 
                   @Override
                   protected void init() {
-                      if (page == 0) {
-                          initMain();
-                      } else if (page == 1) {
-                          initParts();
-                      } else if (page == 3) {
-                          initPreview();
-                      } else {
-                          initCosmetics();
-                      }
-                  }
-
-                  private void initMain() {
+                      cw = Math.min(200, (this.width - 40 - gap * 3) / 4);
+                      x0 = (this.width - (cw * 4 + gap * 3)) / 2;
+                      cardsH = Math.min(this.height - 70, 330);
+                      cardsY = Math.max(30, (this.height - cardsH) / 2 - 4);
                       Config c = Config.get();
-                      int w = Math.min(210, this.width - 20);
-                      int x = (this.width - w) / 2;
-                      int y = Math.max(28, (this.height - 170) / 2);
 
-                      this.addDrawableChild(ButtonWidget.builder(
-                              Text.literal("Skin transparan: " + (c.enabled ? "ON" : "OFF")),
-                              b -> {
-                                  c.enabled = !c.enabled;
-                                  b.setMessage(Text.literal("Skin transparan: " + (c.enabled ? "ON" : "OFF")));
-                              }).dimensions(x, y, w, 20).build());
+                      // Kartu 0: Umum
+                      int cx = cardX(0);
+                      int y = cardsY + 32;
+                      button(cx, y, cw, 20, () -> {
+                          c.enabled = !c.enabled;
+                          Config.save();
+                      });
+                      button(cx, y + 22, cw, 20, () -> {
+                          c.everyone = !c.everyone;
+                          Config.save();
+                      });
+                      this.addDrawableChild(new GlassSlider(cx, y + 44, cw, 20, "Opacity base", 0, 100, c.baseOpacity,
+                              v -> c.baseOpacity = v));
+                      this.addDrawableChild(new GlassSlider(cx, y + 66, cw, 20, "Opacity outer", 0, 100, c.outerOpacity,
+                              v -> c.outerOpacity = v));
 
-                      this.addDrawableChild(ButtonWidget.builder(
-                              Text.literal("Berlaku untuk: " + (c.everyone ? "Semua pemain" : "Diri sendiri")),
-                              b -> {
-                                  c.everyone = !c.everyone;
-                                  b.setMessage(Text.literal("Berlaku untuk: " + (c.everyone ? "Semua pemain" : "Diri sendiri")));
-                              }).dimensions(x, y + 24, w, 20).build());
-
-                      this.addDrawableChild(new OpacitySlider(x, y + 48, w, 20, "Opacity base layer", c.baseOpacity, v -> c.baseOpacity = v));
-                      this.addDrawableChild(new OpacitySlider(x, y + 72, w, 20, "Opacity outer layer", c.outerOpacity, v -> c.outerOpacity = v));
-
-                      int tw = (w - 8) / 3;
-                      this.addDrawableChild(ButtonWidget.builder(Text.literal("Tubuh >"), b -> {
-                          page = 1;
-                          this.clearAndInit();
-                      }).dimensions(x, y + 96, tw, 20).build());
-                      this.addDrawableChild(ButtonWidget.builder(Text.literal("Cosmetic >"), b -> {
-                          page = 2;
-                          this.clearAndInit();
-                      }).dimensions(x + tw + 4, y + 96, tw, 20).build());
-                      this.addDrawableChild(ButtonWidget.builder(Text.literal("Preview >"), b -> {
-                          page = 3;
-                          this.clearAndInit();
-                      }).dimensions(x + 2 * (tw + 4), y + 96, tw, 20).build());
-
-                      this.addDrawableChild(ButtonWidget.builder(Text.literal("Selesai"), b -> this.close())
-                              .dimensions(x, y + 124, w, 20).build());
-                  }
-
-                  private void initParts() {
-                      Config c = Config.get();
-                      int gap = 10;
-                      int cw = Math.min(150, (this.width - 30) / 2);
-                      int lx = this.width / 2 - gap / 2 - cw;
-                      int rx = this.width / 2 + gap / 2;
-                      int y = Math.max(34, (this.height - 176) / 2 + 6);
-
-                      this.headerY = y - 12;
-                      this.leftCenterX = lx + cw / 2;
-                      this.rightCenterX = rx + cw / 2;
-
-                      for (int i = 0; i < 6; i++) {
-                          addPartButton(lx, y + i * 22, cw, BASE_NAMES[i], c.hideBase, i);
-                          addPartButton(rx, y + i * 22, cw, OUTER_NAMES[i], c.hideOuter, i);
+                      // Kartu 1: Tubuh (12 bagian)
+                      cx = cardX(1);
+                      y = cardsY + 32;
+                      for (int i = 0; i < 12; i++) {
+                          final int idx = i;
+                          int ry = y + i * 18;
+                          button(cx, ry, cw, 17, () -> {
+                              if (idx < 6) {
+                                  c.hideBase[idx] = !c.hideBase[idx];
+                              } else {
+                                  c.hideOuter[idx - 6] = !c.hideOuter[idx - 6];
+                              }
+                              Config.save();
+                          });
                       }
 
-                      int w = Math.min(210, this.width - 20);
-                      int x = (this.width - w) / 2;
-                      this.addDrawableChild(ButtonWidget.builder(Text.literal("< Kembali"), b -> {
-                          page = 0;
-                          this.clearAndInit();
-                      }).dimensions(x, y + 6 * 22 + 4, w, 20).build());
-                  }
-
-                  private void addPartButton(int x, int y, int w, String name, boolean[] hideArray, int index) {
-                      this.addDrawableChild(ButtonWidget.builder(
-                              Text.literal(partLabel(name, hideArray[index])),
-                              b -> {
-                                  hideArray[index] = !hideArray[index];
-                                  b.setMessage(Text.literal(partLabel(name, hideArray[index])));
-                              }).dimensions(x, y, w, 20).build());
-                  }
-
-                  private void initPreview() {
-                      Config c = Config.get();
-                      int w = Math.min(210, this.width - 20);
-                      int x = (this.width - w) / 2;
-                      int y = Math.max(34, (this.height - 100) / 2);
-
-                      this.addDrawableChild(new RangeSlider(x, y, w, 20, "Posisi X", 0, 100, c.previewX, v -> c.previewX = v));
-                      this.addDrawableChild(new RangeSlider(x, y + 24, w, 20, "Posisi Y", 0, 100, c.previewY, v -> c.previewY = v));
-                      this.addDrawableChild(new RangeSlider(x, y + 48, w, 20, "Ukuran", 50, 150, c.previewSize, v -> c.previewSize = v));
-
-                      this.addDrawableChild(ButtonWidget.builder(Text.literal("< Kembali"), b -> {
-                          page = 0;
-                          this.clearAndInit();
-                      }).dimensions(x, y + 76, w, 20).build());
-                  }
-
-                  private static String partLabel(String name, boolean hidden) {
-                      return name + ": " + (hidden ? "Hilang" : "Tampil");
-                  }
-
-                  private static String cosLabel(Cosmetics.Loaded l) {
-                      return l.display + " (" + Cosmetics.SLOT_LABELS[l.slot] + "): " + (Cosmetics.isSelected(l) ? "ON" : "OFF");
-                  }
-
-                  private void initCosmetics() {
-                      Config c = Config.get();
-                      int w = Math.min(210, this.width - 20);
-                      int x = (this.width - w) / 2;
-                      int y = Math.max(34, (this.height - 190) / 2 + 8);
-                      this.headerY = y;
-
+                      // Kartu 2: Cosmetic
+                      cx = cardX(2);
+                      y = cardsY + 32;
+                      button(cx, y, cw, 20, () -> {
+                          c.cosmeticHideOriginal = !c.cosmeticHideOriginal;
+                          Cosmetics.recompute();
+                          Config.save();
+                      });
                       List<Cosmetics.Loaded> all = Cosmetics.ALL;
-                      int perPage = 5;
-                      int pages = Math.max(1, (all.size() + perPage - 1) / perPage);
-                      if (cosPage >= pages) {
-                          cosPage = pages - 1;
-                      }
-                      for (int i = 0; i < perPage; i++) {
-                          int idx = cosPage * perPage + i;
+                      int per = 8;
+                      int pages = Math.max(1, (all.size() + per - 1) / per);
+                      cosPage = clamp(cosPage, 0, pages - 1);
+                      for (int i = 0; i < per; i++) {
+                          int idx = cosPage * per + i;
                           if (idx >= all.size()) {
                               break;
                           }
-                          Cosmetics.Loaded l = all.get(idx);
-                          this.addDrawableChild(ButtonWidget.builder(Text.literal(cosLabel(l)), b -> {
-                              Cosmetics.toggle(l);
-                              b.setMessage(Text.literal(cosLabel(l)));
-                          }).dimensions(x, y + i * 22, w, 20).build());
+                          final Cosmetics.Loaded l = all.get(idx);
+                          button(cx, y + 22 + i * 22, cw, 20, () -> Cosmetics.toggle(l));
                       }
-
-                      int ny = y + perPage * 22;
-                      this.addDrawableChild(ButtonWidget.builder(Text.literal("<"), b -> {
+                      int navY = y + 22 + per * 22;
+                      button(cx, navY, cw / 2 - 2, 20, () -> {
                           if (cosPage > 0) {
                               cosPage--;
                               this.clearAndInit();
                           }
-                      }).dimensions(x, ny, 24, 20).build());
-                      this.addDrawableChild(ButtonWidget.builder(Text.literal("Muat ulang folder"), b -> {
+                      });
+                      button(cx + cw / 2 + 2, navY, cw / 2 - 2, 20, () -> {
+                          if (cosPage < pages - 1) {
+                              cosPage++;
+                              this.clearAndInit();
+                          }
+                      });
+                      button(cx, navY + 22, cw, 20, () -> {
                           Cosmetics.reload();
                           cosPage = 0;
                           this.clearAndInit();
-                      }).dimensions(x + 28, ny, w - 56, 20).build());
-                      this.addDrawableChild(ButtonWidget.builder(Text.literal(">"), b -> {
-                          cosPage++;
-                          this.clearAndInit();
-                      }).dimensions(x + w - 24, ny, 24, 20).build());
+                      });
 
-                      this.addDrawableChild(ButtonWidget.builder(
-                              Text.literal("Sembunyikan bagian asli: " + (c.cosmeticHideOriginal ? "ON" : "OFF")),
-                              b -> {
-                                  c.cosmeticHideOriginal = !c.cosmeticHideOriginal;
-                                  Cosmetics.recompute();
-                                  b.setMessage(Text.literal("Sembunyikan bagian asli: " + (c.cosmeticHideOriginal ? "ON" : "OFF")));
-                              }).dimensions(x, ny + 22, w, 20).build());
+                      // Kartu 3: Preview & fitur
+                      cx = cardX(3);
+                      y = cardsY + 32;
+                      this.addDrawableChild(new GlassSlider(cx, y, cw, 20, "Posisi X", 0, 100, c.previewX,
+                              v -> c.previewX = v));
+                      this.addDrawableChild(new GlassSlider(cx, y + 22, cw, 20, "Posisi Y", 0, 100, c.previewY,
+                              v -> c.previewY = v));
+                      this.addDrawableChild(new GlassSlider(cx, y + 44, cw, 20, "Ukuran", 50, 150, c.previewSize,
+                              v -> c.previewSize = v));
+                      button(cx, y + 66, cw, 20, () -> this.client.setScreen(new KillStreakScreen(this)));
+                      button(cx, y + 88, cw, 20, () -> this.client.setScreen(new HitSoundScreen(this)));
+                      button(cx, y + 110, cw, 20, () -> this.client.setScreen(new MusicScreen(this)));
+                      button(cx, y + 132, cw, 20, () -> this.client.setScreen(new ScreenshotScreen(this)));
 
-                      this.addDrawableChild(ButtonWidget.builder(Text.literal("< Kembali"), b -> {
-                          page = 0;
-                          this.clearAndInit();
-                      }).dimensions(x, ny + 44, w, 20).build());
+                      // Footer
+                      int fy = Math.min(this.height - 22, cardsY + cardsH + 10);
+                      button(this.width / 2 - 60, fy, 120, 20, this::close);
+                  }
+
+                  // ---- gaya kaca: latar gelap semi-transparan dengan sudut membulat ----
+                  private static void rr(DrawContext c, int x, int y, int w, int h, int r, int col) {
+                      if (w <= 0 || h <= 0) {
+                          return;
+                      }
+                      r = Math.min(r, Math.min(w, h) / 2);
+                      if (r <= 0) {
+                          c.fill(x, y, x + w, y + h, col);
+                          return;
+                      }
+                      c.fill(x, y + r, x + w, y + h - r, col);
+                      for (int i = 0; i < r; i++) {
+                          double d = r - i - 0.5;
+                          int inset = r - (int) Math.round(Math.sqrt(Math.max(0, r * r - d * d)));
+                          c.fill(x + inset, y + i, x + w - inset, y + i + 1, col);
+                          c.fill(x + inset, y + h - 1 - i, x + w - inset, y + h - i, col);
+                      }
+                  }
+
+                  private static boolean hov(int mx, int my, int x, int y, int w, int h) {
+                      return mx >= x && mx < x + w && my >= y && my < y + h;
+                  }
+
+                  private void card(DrawContext c, int x, String title, int accent) {
+                      rr(c, x, cardsY, cw, cardsH, 10, CARD);
+                      c.fill(x + 10, cardsY + 1, x + cw - 10, cardsY + 2, 0x55FFFFFF);
+                      rr(c, x + 10, cardsY + 10, 6, 6, 3, accent);
+                      c.drawTextWithShadow(this.textRenderer, Text.literal(title), x + 22, cardsY + 9, 0xFFFFFFFF);
+                      c.fill(x + 10, cardsY + 26, x + cw - 10, cardsY + 27, 0x22FFFFFF);
+                  }
+
+                  private void row(DrawContext c, int x, int y, int w, int h, String label, boolean hover) {
+                      if (hover) {
+                          rr(c, x, y, w, h, 5, 0x26FFFFFF);
+                      }
+                      c.drawTextWithShadow(this.textRenderer, Text.literal(label), x + 6, y + (h - 8) / 2, 0xFFE6E8EB);
+                  }
+
+                  private void toggleRow(DrawContext c, int mx, int my, int x, int y, int w, int h, String label, boolean on) {
+                      row(c, x, y, w, h, label, hov(mx, my, x, y, w, h));
+                      int pw = 24;
+                      int ph = 11;
+                      int px = x + w - pw - 6;
+                      int py = y + (h - ph) / 2;
+                      rr(c, px, py, pw, ph, 5, on ? BLUE : OFF);
+                      int kx = on ? px + pw - ph + 1 : px + 1;
+                      rr(c, kx, py + 1, ph - 2, ph - 2, 4, 0xFFFFFFFF);
+                  }
+
+                  private void stepperRow(DrawContext c, int mx, int my, int x, int y, int w, int h, String label, String value) {
+                      row(c, x, y, w, h, label, false);
+                      int vw = this.textRenderer.getWidth(value);
+                      c.drawTextWithShadow(this.textRenderer, Text.literal(value), x + w - 48 - vw, y + (h - 8) / 2, 0xFFBFC5CE);
+                      boolean hm = hov(mx, my, x + w - 46, y, 15, h);
+                      boolean hp = hov(mx, my, x + w - 17, y, 17, h);
+                      rr(c, x + w - 44, y + 3, 12, h - 6, 3, hm ? 0x55FFFFFF : 0x2AFFFFFF);
+                      rr(c, x + w - 14, y + 3, 12, h - 6, 3, hp ? 0x55FFFFFF : 0x2AFFFFFF);
+                      c.drawCenteredTextWithShadow(this.textRenderer, Text.literal("-"), x + w - 38, y + (h - 8) / 2, 0xFFFFFFFF);
+                      c.drawCenteredTextWithShadow(this.textRenderer, Text.literal("+"), x + w - 8, y + (h - 8) / 2, 0xFFFFFFFF);
+                  }
+
+                  private void actionRow(DrawContext c, int mx, int my, int x, int y, int w, int h, String label) {
+                      row(c, x, y, w, h, label, hov(mx, my, x, y, w, h));
+                      c.drawTextWithShadow(this.textRenderer, Text.literal(">"), x + w - 12, y + (h - 8) / 2, 0xFF8FB8FF);
                   }
 
                   @Override
                   public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-                      // sengaja kosong: dunia tetap kelihatan jelas (tekan F5 untuk lihat karakter sendiri)
                   }
 
                   @Override
-                  public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-                      super.render(context, mouseX, mouseY, delta);
-                      context.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, 10, 0xFFFFFFFF);
+                  public void render(DrawContext c, int mx, int my, float delta) {
+                      c.fill(0, 0, this.width, this.height, 0x66000000);
+                      c.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, Math.max(4, cardsY - 16), 0xFFFFFFFF);
+                      Config cfg = Config.get();
 
-                      if (page == 1) {
-                          context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("Base layer"), leftCenterX, headerY, 0xFFFFFFFF);
-                          context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("Outer layer"), rightCenterX, headerY, 0xFFFFFFFF);
-                      } else if (page == 2) {
-                          if (Cosmetics.ALL.isEmpty()) {
-                              context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("Belum ada cosmetic. Taruh file .bbmodel di:"), this.width / 2, headerY + 8, 0xFFFFFFFF);
-                              context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("config/transparent-skin/cosmetics"), this.width / 2, headerY + 22, 0xFFFFFF55);
-                              context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("Nama file: rightleg_korblox.bbmodel"), this.width / 2, headerY + 36, 0xFFAAAAAA);
-                          }
-                          String err = Cosmetics.error;
-                          if (!err.isEmpty()) {
-                              if (err.length() > 70) {
-                                  err = err.substring(0, 70);
-                              }
-                              context.drawCenteredTextWithShadow(this.textRenderer, Text.literal(err), this.width / 2, this.height - 12, 0xFFFF5555);
-                          }
-                      } else if (page == 0) {
-                          String status = "Hook: model " + (State.angleHits > 0 ? "OK" : "-") + ", part " + (State.partHits > 0 ? "OK" : "-")
-                                  + " | cosmetic: " + Cosmetics.ALL.size();
-                          context.drawCenteredTextWithShadow(this.textRenderer, Text.literal(status), this.width / 2, this.height - 12, 0xFFAAAAAA);
+                      // Kartu 0: Umum
+                      int x = cardX(0);
+                      int y = cardsY + 32;
+                      card(c, x, "Umum", BLUE);
+                      toggleRow(c, mx, my, x, y, cw, 20, "Skin transparan", cfg.enabled);
+                      toggleRow(c, mx, my, x, y + 22, cw, 20, "Berlaku semua", cfg.everyone);
+
+                      // Kartu 1: Tubuh
+                      x = cardX(1);
+                      y = cardsY + 32;
+                      card(c, x, "Tubuh", 0xFF22C55E);
+                      for (int i = 0; i < 12; i++) {
+                          boolean outer = i >= 6;
+                          String name = outer ? OUTER_NAMES[i - 6] : BASE_NAMES[i];
+                          boolean hidden = outer ? cfg.hideOuter[i - 6] : cfg.hideBase[i];
+                          toggleRow(c, mx, my, x, y + i * 18, cw, 17, (outer ? "Outer " : "") + name, !hidden);
                       }
+
+                      // Kartu 2: Cosmetic
+                      x = cardX(2);
+                      y = cardsY + 32;
+                      card(c, x, "Cosmetic", 0xFFA855F7);
+                      toggleRow(c, mx, my, x, y, cw, 20, "Sembunyikan asli", cfg.cosmeticHideOriginal);
+                      List<Cosmetics.Loaded> all = Cosmetics.ALL;
+                      int per = 8;
+                      int pages = Math.max(1, (all.size() + per - 1) / per);
+                      for (int i = 0; i < per; i++) {
+                          int idx = cosPage * per + i;
+                          if (idx >= all.size()) {
+                              break;
+                          }
+                          Cosmetics.Loaded l = all.get(idx);
+                          String label = l.display.length() > 15 ? l.display.substring(0, 14) + "." : l.display;
+                          toggleRow(c, mx, my, x, y + 22 + i * 22, cw, 20, label, Cosmetics.isSelected(l));
+                      }
+                      int navY = y + 22 + per * 22;
+                      boolean hl = hov(mx, my, x, navY, cw / 2 - 2, 20);
+                      boolean hr = hov(mx, my, x + cw / 2 + 2, navY, cw / 2 - 2, 20);
+                      rr(c, x, navY, cw / 2 - 2, 20, 5, hl ? 0x44FFFFFF : 0x22FFFFFF);
+                      rr(c, x + cw / 2 + 2, navY, cw / 2 - 2, 20, 5, hr ? 0x44FFFFFF : 0x22FFFFFF);
+                      c.drawCenteredTextWithShadow(this.textRenderer, Text.literal("<"), x + cw / 4 - 1, navY + 6, 0xFFFFFFFF);
+                      c.drawCenteredTextWithShadow(this.textRenderer, Text.literal((cosPage + 1) + "/" + pages), x + cw / 2, navY + 6, 0xFFBFC5CE);
+                      c.drawCenteredTextWithShadow(this.textRenderer, Text.literal(">"), x + cw * 3 / 4 + 1, navY + 6, 0xFFFFFFFF);
+                      actionRow(c, mx, my, x, navY + 22, cw, 20, "Muat ulang folder");
+
+                      // Kartu 3: Preview & fitur
+                      x = cardX(3);
+                      y = cardsY + 32;
+                      card(c, x, "Preview & fitur", 0xFFF59E0B);
+                      actionRow(c, mx, my, x, y + 66, cw, 20, "Killstreak");
+                      actionRow(c, mx, my, x, y + 88, cw, 20, "Hitsound");
+                      actionRow(c, mx, my, x, y + 110, cw, 20, "Musik");
+                      actionRow(c, mx, my, x, y + 132, cw, 20, "Foto");
+
+                      // Footer
+                      int fy = Math.min(this.height - 22, cardsY + cardsH + 10);
+                      boolean hf = hov(mx, my, this.width / 2 - 60, fy, 120, 20);
+                      rr(c, this.width / 2 - 60, fy, 120, 20, 6, hf ? 0x553B82F6 : 0x33FFFFFF);
+                      c.drawCenteredTextWithShadow(this.textRenderer, Text.literal("Selesai"), this.width / 2, fy + 6, 0xFFFFFFFF);
+
+                      super.render(c, mx, my, delta);
                   }
 
                   @Override
@@ -1286,21 +1514,13 @@ jobs:
 
                   @Override
                   public void close() {
+                      Config.save();
                       if (this.client != null) {
                           this.client.setScreen(this.parent);
                       }
                   }
-
-                  @Override
-                  public void removed() {
-                      Config.save();
-                      super.removed();
-                  }
               }
 
-              // ------------------------------------------------------------------
-              // Akun offline (ganti nama/session lokal, sampai 500 akun)
-              // ------------------------------------------------------------------
               public static final class Accounts {
                   private Accounts() {
                   }
@@ -1347,166 +1567,6 @@ jobs:
                       }
                       Config.get().currentAccount = name;
                       Config.save();
-                  }
-              }
-
-              public static final class AccountScreen extends Screen {
-                  private final Screen parent;
-                  private TextFieldWidget field;
-                  private String filter = "";
-                  private String status = "";
-                  private String pageText = "1/1";
-                  private int accPage = 0;
-                  private int listX;
-                  private int listY;
-                  private int listW;
-                  private final List<ClickableWidget> listWidgets = new ArrayList<>();
-
-                  public AccountScreen(Screen parent) {
-                      super(Text.literal("Akun Offline"));
-                      this.parent = parent;
-                  }
-
-                  @Override
-                  protected void init() {
-                      listWidgets.clear();
-                      listW = Math.min(210, this.width - 20);
-                      listX = (this.width - listW) / 2;
-                      int y = Math.max(34, (this.height - 190) / 2 + 8);
-
-                      field = new TextFieldWidget(this.textRenderer, listX, y, listW - 64, 20, Text.literal("Nama akun"));
-                      field.setMaxLength(16);
-                      field.setPlaceholder(Text.literal("Ketik nama (cari / tambah)"));
-                      field.setText(filter);
-                      field.setChangedListener(t -> {
-                          filter = t;
-                          accPage = 0;
-                          rebuildList();
-                      });
-                      this.addDrawableChild(field);
-
-                      this.addDrawableChild(ButtonWidget.builder(Text.literal("Tambah"), b -> addAccount())
-                              .dimensions(listX + listW - 60, y, 60, 20).build());
-
-                      listY = y + 26;
-                      int ny = listY + 5 * 22;
-                      this.addDrawableChild(ButtonWidget.builder(Text.literal("<"), b -> {
-                          if (accPage > 0) {
-                              accPage--;
-                              rebuildList();
-                          }
-                      }).dimensions(listX, ny, 24, 20).build());
-                      this.addDrawableChild(ButtonWidget.builder(Text.literal(">"), b -> {
-                          accPage++;
-                          rebuildList();
-                      }).dimensions(listX + listW - 24, ny, 24, 20).build());
-                      this.addDrawableChild(ButtonWidget.builder(Text.literal("< Kembali"), b -> this.close())
-                              .dimensions(listX, ny + 24, listW, 20).build());
-
-                      rebuildList();
-                  }
-
-                  private List<String> filtered() {
-                      String f = filter == null ? "" : filter.toLowerCase();
-                      List<String> r = new ArrayList<>();
-                      for (String a : Config.get().accounts) {
-                          if (f.isEmpty() || a.toLowerCase().contains(f)) {
-                              r.add(a);
-                          }
-                      }
-                      return r;
-                  }
-
-                  private void rebuildList() {
-                      for (ClickableWidget w : listWidgets) {
-                          this.remove(w);
-                      }
-                      listWidgets.clear();
-                      List<String> list = filtered();
-                      int per = 5;
-                      int pages = Math.max(1, (list.size() + per - 1) / per);
-                      if (accPage >= pages) {
-                          accPage = pages - 1;
-                      }
-                      pageText = (accPage + 1) + "/" + pages;
-                      String cur = Accounts.currentName();
-                      for (int i = 0; i < per; i++) {
-                          int idx = accPage * per + i;
-                          if (idx >= list.size()) {
-                              break;
-                          }
-                          String name = list.get(idx);
-                          ButtonWidget sel = ButtonWidget.builder(
-                                  Text.literal((name.equals(cur) ? "> " : "") + name),
-                                  b -> select(name)).dimensions(listX, listY + i * 22, listW - 28, 20).build();
-                          ButtonWidget del = ButtonWidget.builder(Text.literal("X"),
-                                  b -> delete(name)).dimensions(listX + listW - 24, listY + i * 22, 24, 20).build();
-                          this.addDrawableChild(sel);
-                          this.addDrawableChild(del);
-                          listWidgets.add(sel);
-                          listWidgets.add(del);
-                      }
-                  }
-
-                  private void addAccount() {
-                      String n = field.getText().trim();
-                      List<String> acc = Config.get().accounts;
-                      if (!Accounts.valid(n)) {
-                          status = "Nama: 1-16 karakter (huruf, angka, _)";
-                          return;
-                      }
-                      if (acc.size() >= 500) {
-                          status = "Maksimal 500 akun";
-                          return;
-                      }
-                      for (String a : acc) {
-                          if (a.equalsIgnoreCase(n)) {
-                              status = "Akun sudah ada";
-                              return;
-                          }
-                      }
-                      acc.add(n);
-                      Config.save();
-                      status = "Ditambahkan: " + n;
-                      field.setText("");
-                      filter = "";
-                      rebuildList();
-                  }
-
-                  private void delete(String name) {
-                      Config.get().accounts.remove(name);
-                      Config.save();
-                      status = "Dihapus: " + name;
-                      rebuildList();
-                  }
-
-                  private void select(String name) {
-                      try {
-                          Accounts.switchTo(name);
-                          this.close();
-                      } catch (Throwable t) {
-                          status = "Gagal: " + t.getMessage();
-                      }
-                  }
-
-                  @Override
-                  public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-                      super.render(context, mouseX, mouseY, delta);
-                      context.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, 10, 0xFFFFFFFF);
-                      context.drawCenteredTextWithShadow(this.textRenderer,
-                              Text.literal(pageText + "  |  " + Config.get().accounts.size() + "/500 akun"),
-                              this.width / 2, listY + 5 * 22 + 6, 0xFFAAAAAA);
-                      if (!status.isEmpty()) {
-                          context.drawCenteredTextWithShadow(this.textRenderer, Text.literal(status),
-                                  this.width / 2, this.height - 12, 0xFFFFFF55);
-                      }
-                  }
-
-                  @Override
-                  public void close() {
-                      if (this.client != null) {
-                          this.client.setScreen(this.parent);
-                      }
                   }
               }
 
@@ -1652,15 +1712,8 @@ jobs:
                       return base != null && base.model() == PlayerSkinType.SLIM;
                   }
 
-                  private static SkinTextures build(String name, Identifier id, SkinTextures base) {
-                      PlayerSkinType model = isSlim(name, base) ? PlayerSkinType.SLIM : PlayerSkinType.WIDE;
-                      String key = name + "|" + System.identityHashCode(base) + "|" + model;
-                      SkinTextures cached = CACHE.get(key);
-                      if (cached != null) {
-                          return cached;
-                      }
-                      final Identifier f = id;
-                      AssetInfo.TextureAsset body = new AssetInfo.TextureAsset() {
+                  private static AssetInfo.TextureAsset asset(Identifier f) {
+                      return new AssetInfo.TextureAsset() {
                           @Override
                           public Identifier id() {
                               return f;
@@ -1671,6 +1724,15 @@ jobs:
                               return f;
                           }
                       };
+                  }
+
+                  private static SkinTextures build(String name, AssetInfo.TextureAsset body, SkinTextures base) {
+                      PlayerSkinType model = isSlim(name, base) ? PlayerSkinType.SLIM : PlayerSkinType.WIDE;
+                      String key = name + "|" + System.identityHashCode(base) + "|" + model;
+                      SkinTextures cached = CACHE.get(key);
+                      if (cached != null) {
+                          return cached;
+                      }
                       SkinTextures result = SkinTextures.create(body, base.cape(), base.elytra(), model);
                       if (CACHE.size() > 200) {
                           CACHE.clear();
@@ -1679,26 +1741,34 @@ jobs:
                       return result;
                   }
 
-                  /** ganti texture body dengan skin pilihan; cape tetap dari akun */
+                  /** ganti texture body dengan skin pilihan, dan cape dengan cape pilihan */
                   public static SkinTextures apply(SkinTextures base) {
-                      Identifier id = selectedId();
-                      if (id == null || base == null) {
+                      if (base == null) {
                           return base;
                       }
-                      return build(Config.get().selectedSkin, id, base);
+                      Identifier id = selectedId();
+                      if (id == null) {
+                          return base;
+                      }
+                      String name = Config.get().selectedSkin == null ? "" : Config.get().selectedSkin;
+                      return build(name, asset(id), base);
                   }
 
                   public static SkinTextures texturesFor(String name) {
                       SkinTextures base = defaultBase();
-                      if (name == null || name.isEmpty()) {
-                          return base;
-                      }
-                      for (Loaded l : ALL) {
-                          if (l.name.equals(name)) {
-                              return build(name, l.id, base);
+                      Identifier id = null;
+                      if (name != null && !name.isEmpty()) {
+                          for (Loaded l : ALL) {
+                              if (l.name.equals(name)) {
+                                  id = l.id;
+                                  break;
+                              }
                           }
                       }
-                      return base;
+                      if (id == null) {
+                          return base;
+                      }
+                      return build(name == null ? "" : name, asset(id), base);
                   }
 
                   public static SkinTextures previewTextures() {
@@ -2355,8 +2425,7 @@ jobs:
                       return (sec / 60) + ":" + String.format("%02d", sec % 60);
                   }
 
-                  private static Pcm decode(String name) throws Exception {
-                      Path p = dir().resolve(name);
+                  private static Pcm decode(Path p) throws Exception {
                       byte[] head = new byte[12];
                       int got;
                       try (InputStream hin = Files.newInputStream(p)) {
@@ -2437,7 +2506,7 @@ jobs:
                       wantPlay = name;
                       LOADING.computeIfAbsent(name, n -> CompletableFuture.supplyAsync(() -> {
                           try {
-                              return decode(n);
+                              return decode(dir().resolve(n));
                           } catch (Exception e) {
                               throw new RuntimeException(e);
                           }
@@ -2846,9 +2915,9 @@ jobs:
 
                   private void btn(DrawContext c, int x, int y, int w, int h, String label, boolean hover, boolean active, boolean blue) {
                       int fill = blue ? (hover ? BLUE_HOVER_M : BLUE_M) : (active ? 0xFF38383D : (hover ? 0xFF303035 : 0xFF26262A));
-                      c.fill(x, y, x + w, y + h, fill);
+                      GlassKit.box(c, x, y, x + w, y + h, fill);
                       if (active && !blue) {
-                          c.fill(x, y + h - 1, x + w, y + h, BLUE_LINE_M);
+                          GlassKit.box(c, x, y + h - 1, x + w, y + h, BLUE_LINE_M);
                       }
                       if (!label.isEmpty()) {
                           int tw = this.textRenderer.getWidth(label);
@@ -2865,7 +2934,7 @@ jobs:
                       for (int r = 0; r < circle.length; r++) {
                           for (int k = 0; k < circle[r].length(); k++) {
                               if (circle[r].charAt(k) == '#') {
-                                  c.fill(ox + k, oy + r, ox + k + 1, oy + r + 1, 0xFFFFFFFF);
+                                  GlassKit.box(c, ox + k, oy + r, ox + k + 1, oy + r + 1, 0xFFFFFFFF);
                               }
                           }
                       }
@@ -2884,12 +2953,12 @@ jobs:
                   @Override
                   public void render(DrawContext c, int mx, int my, float delta) {
                       Config cfg = Config.get();
-                      c.fill(0, 0, this.width, this.height, 0xFF101010);
-                      c.fill(px, py, px + pw, py + ph, 0xFF1A1A1C);
-                      c.fill(px, py, px + pw, py + 22, 0xFF202023);
-                      c.fill(px + sideW, py + 22, px + sideW + 1, py + ph, 0xFF2E2E32);
-                      c.fill(rightX - 1, py + 22, rightX, py + ph, 0xFF2E2E32);
-                      c.fill(px, seekY - 8, px + pw, seekY - 7, 0xFF2E2E32);
+                      GlassKit.box(c, 0, 0, this.width, this.height, 0xFF101010);
+                      GlassKit.box(c, px, py, px + pw, py + ph, 0xFF1A1A1C);
+                      GlassKit.box(c, px, py, px + pw, py + 22, 0xFF202023);
+                      GlassKit.box(c, px + sideW, py + 22, px + sideW + 1, py + ph, 0xFF2E2E32);
+                      GlassKit.box(c, rightX - 1, py + 22, rightX, py + ph, 0xFF2E2E32);
+                      GlassKit.box(c, px, seekY - 8, px + pw, seekY - 7, 0xFF2E2E32);
 
                       if (seek != null) {
                           seek.sync();
@@ -2925,7 +2994,7 @@ jobs:
                           String name = list.get(idx);
                           int y = start + i * 22;
                           boolean isCur = tab == 0 ? name.equals(cur) : (tab == 1 && openPl < 0 ? false : name.equals(cur));
-                          c.fill(listX, y, listX + listW, y + 20, isCur ? 0xFF243A57 : 0xFF222226);
+                          GlassKit.box(c, listX, y, listX + listW, y + 20, isCur ? 0xFF243A57 : 0xFF222226);
                           if (tab == 1 && openPl < 0) {
                               int n = cfg.playlists.get(idx).songs.size();
                               String shown = name.length() > 22 ? name.substring(0, 21) + "." : name;
@@ -2971,8 +3040,8 @@ jobs:
                       btn(c, cx - 50, transportY, 30, 20, "<<", hov(mx, my, cx - 50, transportY, 30, 20), false, false);
                       btn(c, cx - 16, transportY, 32, 20, "", hov(mx, my, cx - 16, transportY, 32, 20), false, true);
                       if (Music.isPlaying()) {
-                          c.fill(cx - 8, transportY + 6, cx - 5, transportY + 14, 0xFFFFFFFF);
-                          c.fill(cx + 1, transportY + 6, cx + 4, transportY + 14, 0xFFFFFFFF);
+                          GlassKit.box(c, cx - 8, transportY + 6, cx - 5, transportY + 14, 0xFFFFFFFF);
+                          GlassKit.box(c, cx + 1, transportY + 6, cx + 4, transportY + 14, 0xFFFFFFFF);
                       } else {
                           String[] tri = {"#...", "##..", "###.", "##..", "#..."};
                           int ox = cx - 6;
@@ -2980,7 +3049,7 @@ jobs:
                           for (int r = 0; r < tri.length; r++) {
                               for (int k = 0; k < tri[r].length(); k++) {
                                   if (tri[r].charAt(k) == '#') {
-                                      c.fill(ox + k, oy + r, ox + k + 1, oy + r + 1, 0xFFFFFFFF);
+                                      GlassKit.box(c, ox + k, oy + r, ox + k + 1, oy + r + 1, 0xFFFFFFFF);
                                   }
                               }
                           }
@@ -3016,6 +3085,864 @@ jobs:
                   @Override
                   public void close() {
                       Config.save();
+                      if (this.client != null) {
+                          this.client.setScreen(this.parent);
+                      }
+                  }
+              }
+
+              // ------------------------------------------------------------------
+              // Hitsound: suara saat memukul entity, dari config/transparent-skin/hitsounds
+              // ------------------------------------------------------------------
+              public static final class HitSound {
+                  private static final Random RNG = new Random();
+                  private static final Map<String, Music.Pcm> CACHE = new HashMap<>();
+                  private static int src = -1;
+                  private static int buf = -1;
+
+                  private HitSound() {
+                  }
+
+                  public static Path dir() {
+                      return FabricLoader.getInstance().getConfigDir().resolve("transparent-skin").resolve("hitsounds");
+                  }
+
+                  public static List<String> names() {
+                      List<String> out = new ArrayList<>();
+                      try {
+                          Files.createDirectories(dir());
+                          try (Stream<Path> st = Files.list(dir())) {
+                              st.map(p -> p.getFileName().toString())
+                                      .filter(n -> n.toLowerCase().endsWith(".mp3"))
+                                      .sorted(String::compareToIgnoreCase)
+                                      .forEach(out::add);
+                          }
+                      } catch (Throwable ignored) {
+                      }
+                      return out;
+                  }
+
+                  public static void play() {
+                      try {
+                          List<String> names = names();
+                          if (names.isEmpty()) {
+                              return;
+                          }
+                          String want = Config.get().hitSoundFile;
+                          String pick = (want != null && names.contains(want)) ? want : names.get(RNG.nextInt(names.size()));
+                          Music.Pcm pcm = CACHE.get(pick);
+                          if (pcm == null) {
+                              pcm = Music.decode(dir().resolve(pick));
+                              CACHE.put(pick, pcm);
+                          }
+                          if (src < 0) {
+                              src = AL10.alGenSources();
+                              buf = AL10.alGenBuffers();
+                              AL10.alSourcei(src, 0x202, 1);
+                              AL10.alSource3f(src, AL10.AL_POSITION, 0f, 0f, 0f);
+                          }
+                          AL10.alSourceStop(src);
+                          AL10.alSourcei(src, AL10.AL_BUFFER, 0);
+                          AL10.alBufferData(buf, pcm.format(), pcm.data().duplicate(), pcm.rate());
+                          AL10.alSourcei(src, AL10.AL_BUFFER, buf);
+                          AL10.alSourcef(src, AL10.AL_GAIN, Config.get().hitSoundVolume / 100f);
+                          AL10.alSourcePlay(src);
+                      } catch (Throwable ignored) {
+                      }
+                  }
+              }
+
+              public static final class HitSoundScreen extends Screen {
+                  private final Screen parent;
+                  private int cardX;
+                  private int cardY;
+                  private int cardW;
+                  private int cardH;
+
+                  public HitSoundScreen(Screen parent) {
+                      super(Text.literal("Hitsound"));
+                      this.parent = parent;
+                  }
+
+                  private void btn(int x, int y, int w, int h, Runnable r) {
+                      ButtonWidget b = ButtonWidget.builder(Text.empty(), btn -> r.run()).dimensions(x, y, w, h).build();
+                      b.setAlpha(0f);
+                      this.addDrawableChild(b);
+                  }
+
+                  private static String soundLabel(Config c) {
+                      if (c.hitSoundFile == null || c.hitSoundFile.isEmpty()) {
+                          return "Acak";
+                      }
+                      String n = c.hitSoundFile;
+                      return n.length() > 14 ? n.substring(0, 13) + "." : n;
+                  }
+
+                  @Override
+                  protected void init() {
+                      Config c = Config.get();
+                      cardW = Math.min(240, this.width - 24);
+                      cardH = 170;
+                      cardX = (this.width - cardW) / 2;
+                      cardY = Math.max(30, (this.height - cardH) / 2 - 6);
+                      int x = cardX + 8;
+                      int w = cardW - 16;
+                      int y = cardY + 34;
+                      btn(x, y, w, 20, () -> {
+                          c.hitSound = !c.hitSound;
+                          Config.save();
+                      });
+                      this.addDrawableChild(new GlassSlider(x, y + 22, w, 20, "Volume suara", 0, 100, c.hitSoundVolume,
+                              v -> c.hitSoundVolume = v));
+                      btn(x, y + 44, w, 20, () -> {
+                          List<String> opts = new ArrayList<>();
+                          opts.add("");
+                          opts.addAll(HitSound.names());
+                          int i = opts.indexOf(c.hitSoundFile);
+                          i = (i < 0 ? 0 : i + 1) % opts.size();
+                          c.hitSoundFile = opts.get(i);
+                          Config.save();
+                      });
+                      btn(x, y + 66, w, 20, HitSound::play);
+                      btn(x, cardY + cardH - 28, w, 20, this::close);
+                  }
+
+                  @Override
+                  public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
+                  }
+
+                  @Override
+                  public void render(DrawContext c, int mx, int my, float delta) {
+                      Config cfg = Config.get();
+                      c.fill(0, 0, this.width, this.height, 0x66000000);
+                      GlassKit.card(c, this.textRenderer, cardX, cardY, cardW, cardH, "Hitsound", GlassKit.BLUE);
+                      int x = cardX + 8;
+                      int w = cardW - 16;
+                      int y = cardY + 34;
+                      GlassKit.toggle(c, this.textRenderer, mx, my, x, y, w, 20, "Hitsound", cfg.hitSound);
+                      GlassKit.action(c, this.textRenderer, mx, my, x, y + 44, w, 20, "Suara", soundLabel(cfg));
+                      GlassKit.action(c, this.textRenderer, mx, my, x, y + 66, w, 20, "Tes suara", "");
+                      GlassKit.row(c, this.textRenderer, x, cardY + cardH - 28, w, 20, "< Kembali", GlassKit.hov(mx, my, x, cardY + cardH - 28, w, 20));
+                      if (HitSound.names().isEmpty()) {
+                          c.drawCenteredTextWithShadow(this.textRenderer, Text.literal("Taruh .mp3 di config/transparent-skin/hitsounds"),
+                                  this.width / 2, cardY + cardH + 8, 0xFFAAAAAA);
+                      }
+                      super.render(c, mx, my, delta);
+                  }
+
+                  @Override
+                  public boolean shouldPause() {
+                      return false;
+                  }
+
+                  @Override
+                  public void close() {
+                      Config.save();
+                      if (this.client != null) {
+                          this.client.setScreen(this.parent);
+                      }
+                  }
+              }
+
+              // ------------------------------------------------------------------
+              // Viewer screenshot: folder screenshots bawaan Minecraft + folder referensi build
+              // ------------------------------------------------------------------
+              public static final class ShotCache {
+                  public static final class Tex {
+                      final Identifier id;
+                      final int w;
+                      final int h;
+
+                      Tex(Identifier id, int w, int h) {
+                          this.id = id;
+                          this.w = w;
+                          this.h = h;
+                      }
+                  }
+
+                  private static final int MAX = 40;
+                  private static final Map<Path, Tex> CACHE = new LinkedHashMap<>(16, 0.75f, true) {
+                      @Override
+                      protected boolean removeEldestEntry(Map.Entry<Path, Tex> e) {
+                          if (size() > MAX) {
+                              MinecraftClient.getInstance().getTextureManager().destroyTexture(e.getValue().id);
+                              return true;
+                          }
+                          return false;
+                      }
+                  };
+
+                  private ShotCache() {
+                  }
+
+                  public static Tex get(Path p) {
+                      Tex t = CACHE.get(p);
+                      if (t != null) {
+                          return t;
+                      }
+                      try (InputStream in = Files.newInputStream(p)) {
+                          NativeImage img = NativeImage.read(in);
+                          String key = "shot_" + Integer.toHexString(p.toString().hashCode());
+                          Identifier id = Identifier.of("transparentskin", key);
+                          MinecraftClient.getInstance().getTextureManager().registerTexture(id, new NativeImageBackedTexture(() -> key, img));
+                          t = new Tex(id, img.getWidth(), img.getHeight());
+                          CACHE.put(p, t);
+                          return t;
+                      } catch (Throwable e) {
+                          return null;
+                      }
+                  }
+              }
+
+              public static final class ScreenshotScreen extends Screen {
+                  private static final int COLS = 3;
+                  private static final int ROWS = 3;
+
+                  private final Screen parent;
+                  private int tab = 0;
+                  private int page = 0;
+                  private Path preview = null;
+                  private String status = "";
+                  private int px;
+                  private int py;
+                  private int pw;
+                  private int ph;
+                  private int sideW;
+                  private int gx;
+                  private int gy;
+                  private int gw;
+                  private int gh;
+
+                  public ScreenshotScreen(Screen parent) {
+                      super(Text.literal("Foto"));
+                      this.parent = parent;
+                  }
+
+                  public static Path referenceDir() {
+                      return FabricLoader.getInstance().getConfigDir().resolve("transparent-skin").resolve("referensi");
+                  }
+
+                  private static Path shotDir() {
+                      return FabricLoader.getInstance().getGameDir().resolve("screenshots");
+                  }
+
+                  private static long mtime(Path p) {
+                      try {
+                          return Files.getLastModifiedTime(p).toMillis();
+                      } catch (Throwable t) {
+                          return 0L;
+                      }
+                  }
+
+                  private List<Path> files() {
+                      Path dir = tab == 0 ? shotDir() : referenceDir();
+                      List<Path> out = new ArrayList<>();
+                      try {
+                          Files.createDirectories(dir);
+                          try (Stream<Path> st = Files.list(dir)) {
+                              st.filter(p -> {
+                                  String n = p.getFileName().toString().toLowerCase();
+                                  return n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg");
+                              }).forEach(out::add);
+                          }
+                      } catch (Throwable ignored) {
+                      }
+                      if (tab == 0) {
+                          out.sort((a, b) -> Long.compare(mtime(b), mtime(a)));
+                      } else {
+                          out.sort((a, b) -> a.getFileName().toString().compareToIgnoreCase(b.getFileName().toString()));
+                      }
+                      return out;
+                  }
+
+                  private ButtonWidget invisible(int x, int y, int w, int h, Runnable action) {
+                      ButtonWidget b = ButtonWidget.builder(Text.empty(), btn -> action.run()).dimensions(x, y, w, h).build();
+                      b.setAlpha(0f);
+                      this.addDrawableChild(b);
+                      return b;
+                  }
+
+                  @Override
+                  protected void init() {
+                      int w = this.width;
+                      int h = this.height;
+                      px = Math.round(w * 0.07f);
+                      py = Math.round(h * 0.126f);
+                      pw = w - 2 * px;
+                      ph = Math.round(h * 0.76f);
+                      sideW = Math.round(pw * 0.135f);
+                      gx = px + sideW + 8;
+                      gy = py + 30;
+                      gw = pw - sideW - 16;
+                      gh = ph - 60;
+
+                      if (preview != null) {
+                          List<Path> list = files();
+                          int idx = list.indexOf(preview);
+                          invisible(0, 0, w, h, () -> {
+                              preview = null;
+                              this.clearAndInit();
+                          });
+                          invisible(px + 8, py + ph - 26, 60, 20, () -> step(-1));
+                          invisible(px + pw - 68, py + ph - 26, 60, 20, () -> step(1));
+                          return;
+                      }
+
+                      invisible(Math.max(4, px - 26), py + 2, 20, 20, this::close);
+                      invisible(px, py + 26, sideW, 20, () -> {
+                          tab = 0;
+                          page = 0;
+                          this.clearAndInit();
+                      });
+                      invisible(px, py + 48, sideW, 20, () -> {
+                          tab = 1;
+                          page = 0;
+                          this.clearAndInit();
+                      });
+
+                      List<Path> list = files();
+                      int per = COLS * ROWS;
+                      int pages = Math.max(1, (list.size() + per - 1) / per);
+                      if (page >= pages) {
+                          page = pages - 1;
+                      }
+                      if (page < 0) {
+                          page = 0;
+                      }
+                      int cw = (gw - 8) / COLS;
+                      int ch = (gh - 30) / ROWS;
+                      for (int i = 0; i < per; i++) {
+                          int idx = page * per + i;
+                          if (idx >= list.size()) {
+                              break;
+                          }
+                          final Path p = list.get(idx);
+                          int cx = gx + (i % COLS) * (cw + 4);
+                          int cy = gy + (i / COLS) * (ch + 4);
+                          invisible(cx, cy, cw, ch, () -> {
+                              preview = p;
+                              this.clearAndInit();
+                          });
+                      }
+                      invisible(gx, py + ph - 24, 40, 20, () -> {
+                          if (page > 0) {
+                              page--;
+                              this.clearAndInit();
+                          }
+                      });
+                      invisible(gx + gw - 40, py + ph - 24, 40, 20, () -> {
+                          if (page < pages - 1) {
+                              page++;
+                              this.clearAndInit();
+                          }
+                      });
+                  }
+
+                  private void step(int dir) {
+                      List<Path> list = files();
+                      int idx = list.indexOf(preview);
+                      if (idx < 0 || list.isEmpty()) {
+                          return;
+                      }
+                      preview = list.get((idx + dir + list.size()) % list.size());
+                      this.clearAndInit();
+                  }
+
+                  @Override
+                  public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
+                  }
+
+                  @Override
+                  public void render(DrawContext c, int mx, int my, float delta) {
+                      GlassKit.box(c, 0, 0, this.width, this.height, 0xFF101010);
+                      if (preview != null) {
+                          renderPreview(c);
+                          super.render(c, mx, my, delta);
+                          return;
+                      }
+                      GlassKit.box(c, px, py, px + pw, py + ph, 0xFF1A1A1C);
+                      GlassKit.box(c, px, py, px + pw, py + 22, 0xFF202023);
+                      GlassKit.box(c, px + sideW, py + 22, px + sideW + 1, py + ph, 0xFF2E2E32);
+                      c.drawTextWithShadow(this.textRenderer, Text.literal("Foto"), px + 8, py + 7, 0xFFFFFFFF);
+                      int bx = Math.max(4, px - 26);
+                      GlassKit.box(c, bx, py + 2, bx + 20, py + 22, 0xFF26262A);
+                      c.drawTextWithShadow(this.textRenderer, Text.literal("<"), bx + 7, py + 8, 0xFFFFFFFF);
+                      GlassKit.box(c, px + 2, py + 26, px + sideW - 2, py + 46, tab == 0 ? 0xFF38383D : 0xFF26262A);
+                      c.drawTextWithShadow(this.textRenderer, Text.literal("Screenshot"), px + 6, py + 32, 0xFFFFFFFF);
+                      GlassKit.box(c, px + 2, py + 48, px + sideW - 2, py + 68, tab == 1 ? 0xFF38383D : 0xFF26262A);
+                      c.drawTextWithShadow(this.textRenderer, Text.literal("Referensi"), px + 6, py + 54, 0xFFFFFFFF);
+
+                      List<Path> list = files();
+                      int per = COLS * ROWS;
+                      int pages = Math.max(1, (list.size() + per - 1) / per);
+                      int cw = (gw - 8) / COLS;
+                      int ch = (gh - 30) / ROWS;
+                      for (int i = 0; i < per; i++) {
+                          int idx = page * per + i;
+                          if (idx >= list.size()) {
+                              break;
+                          }
+                          Path p = list.get(idx);
+                          int cx = gx + (i % COLS) * (cw + 4);
+                          int cy = gy + (i / COLS) * (ch + 4);
+                          GlassKit.box(c, cx, cy, cx + cw, cy + ch, 0xFF222226);
+                          ShotCache.Tex t = ShotCache.get(p);
+                          if (t != null) {
+                              float sc = Math.min((cw - 4) / (float) t.w, (ch - 14) / (float) t.h);
+                              int dw = Math.max(1, Math.round(t.w * sc));
+                              int dh = Math.max(1, Math.round(t.h * sc));
+                              c.drawTexture(RenderPipelines.GUI_TEXTURED, t.id, cx + (cw - dw) / 2, cy + 2, 0, 0, dw, dh, t.w, t.h, t.w, t.h);
+                          }
+                          String name = p.getFileName().toString();
+                          if (name.length() > 14) {
+                              name = name.substring(0, 13) + ".";
+                          }
+                          c.drawTextWithShadow(this.textRenderer, Text.literal(name), cx + 2, cy + ch - 10, 0xFFAAAAAA);
+                      }
+                      GlassKit.box(c, gx, py + ph - 24, gx + 40, py + ph - 4, 0xFF26262A);
+                      c.drawTextWithShadow(this.textRenderer, Text.literal("<"), gx + 16, py + ph - 18, 0xFFFFFFFF);
+                      GlassKit.box(c, gx + gw - 40, py + ph - 24, gx + gw, py + ph - 4, 0xFF26262A);
+                      c.drawTextWithShadow(this.textRenderer, Text.literal(">"), gx + gw - 24, py + ph - 18, 0xFFFFFFFF);
+                      c.drawCenteredTextWithShadow(this.textRenderer, Text.literal((page + 1) + "/" + pages),
+                              gx + gw / 2, py + ph - 18, 0xFFAAAAAA);
+                      if (list.isEmpty()) {
+                          String hint = tab == 0 ? "Belum ada screenshot (tekan F2 di game)"
+                                  : "Taruh foto (PNG/JPG) di config/transparent-skin/referensi";
+                          c.drawCenteredTextWithShadow(this.textRenderer, Text.literal(hint), gx + gw / 2, gy + 20, 0xFFAAAAAA);
+                      }
+                      super.render(c, mx, my, delta);
+                  }
+
+                  private void renderPreview(DrawContext c) {
+                      ShotCache.Tex t = ShotCache.get(preview);
+                      String name = preview.getFileName().toString();
+                      c.drawCenteredTextWithShadow(this.textRenderer, Text.literal(name), this.width / 2, 8, 0xFFFFFFFF);
+                      if (t != null) {
+                          float sc = Math.min((this.width * 0.92f) / t.w, (this.height * 0.78f) / t.h);
+                          int dw = Math.round(t.w * sc);
+                          int dh = Math.round(t.h * sc);
+                          int x = (this.width - dw) / 2;
+                          int y = 24 + (this.height - 60 - dh) / 2;
+                          c.drawTexture(RenderPipelines.GUI_TEXTURED, t.id, x, y, 0, 0, dw, dh, t.w, t.h, t.w, t.h);
+                      }
+                      GlassKit.box(c, px + 8, py + ph - 26, px + 68, py + ph - 6, 0xFF26262A);
+                      c.drawCenteredTextWithShadow(this.textRenderer, Text.literal("< Sebelum"), px + 38, py + ph - 20, 0xFFFFFFFF);
+                      GlassKit.box(c, px + pw - 68, py + ph - 26, px + pw - 8, py + ph - 6, 0xFF26262A);
+                      c.drawCenteredTextWithShadow(this.textRenderer, Text.literal("Sesudah >"), px + pw - 38, py + ph - 20, 0xFFFFFFFF);
+                      c.drawCenteredTextWithShadow(this.textRenderer, Text.literal("Ketuk di luar untuk menutup"), this.width / 2, this.height - 12, 0xFFAAAAAA);
+                  }
+
+                  @Override
+                  public boolean shouldPause() {
+                      return false;
+                  }
+
+                  @Override
+                  public void close() {
+                      if (preview != null) {
+                          preview = null;
+                          this.clearAndInit();
+                          return;
+                      }
+                      if (this.client != null) {
+                          this.client.setScreen(this.parent);
+                      }
+                  }
+              }
+
+              // ------------------------------------------------------------------
+              // Kill streak: suara acak dari config/transparent-skin/killsounds saat membunuh pemain
+              // ------------------------------------------------------------------
+              public static final class KillSound {
+                  private static final Random RNG = new Random();
+                  private static int src = -1;
+                  private static int buf = -1;
+
+                  private KillSound() {
+                  }
+
+                  public static Path dir() {
+                      return FabricLoader.getInstance().getConfigDir().resolve("transparent-skin").resolve("killsounds");
+                  }
+
+                  public static List<String> names() {
+                      List<String> out = new ArrayList<>();
+                      try {
+                          Files.createDirectories(dir());
+                          try (Stream<Path> st = Files.list(dir())) {
+                              st.map(p -> p.getFileName().toString())
+                                      .filter(n -> n.toLowerCase().endsWith(".mp3"))
+                                      .sorted(String::compareToIgnoreCase)
+                                      .forEach(out::add);
+                          }
+                      } catch (Throwable ignored) {
+                      }
+                      return out;
+                  }
+
+                  public static void play() {
+                      try {
+                          List<String> names = names();
+                          if (names.isEmpty()) {
+                              return;
+                          }
+                          String want = Config.get().killSoundFile;
+                          String pickName = (want != null && names.contains(want)) ? want : names.get(RNG.nextInt(names.size()));
+                          Music.Pcm pcm = Music.decode(dir().resolve(pickName));
+                          if (src < 0) {
+                              src = AL10.alGenSources();
+                              buf = AL10.alGenBuffers();
+                              AL10.alSourcei(src, 0x202, 1);
+                              AL10.alSource3f(src, AL10.AL_POSITION, 0f, 0f, 0f);
+                          }
+                          AL10.alSourceStop(src);
+                          AL10.alSourcei(src, AL10.AL_BUFFER, 0);
+                          AL10.alBufferData(buf, pcm.format(), pcm.data(), pcm.rate());
+                          AL10.alSourcei(src, AL10.AL_BUFFER, buf);
+                          AL10.alSourcef(src, AL10.AL_GAIN, Config.get().killSoundVolume / 100f);
+                          AL10.alSourcePlay(src);
+                      } catch (Throwable ignored) {
+                      }
+                  }
+              }
+
+              public static final class KillStreak {
+                  private static PlayerEntity target = null;
+                  private static int targetAge = 0;
+                  private static int streak = 0;
+
+                  private KillStreak() {
+                  }
+
+                  public static final String[] STYLES = {"Normal", "Tebal", "Miring", "Garis bawah"};
+                  public static final Formatting[] COLORS = {Formatting.WHITE, Formatting.GOLD, Formatting.RED,
+                          Formatting.AQUA, Formatting.GREEN, Formatting.YELLOW, Formatting.LIGHT_PURPLE};
+                  public static final String[] COLOR_NAMES = {"Putih", "Emas", "Merah", "Aqua", "Hijau", "Kuning", "Pink"};
+
+                  public static MutableText label(int n) {
+                      Config c = Config.get();
+                      MutableText t = Text.literal("Killstreak x" + n).formatted(COLORS[c.killColor]);
+                      if (c.killStyle == 1) {
+                          t = t.formatted(Formatting.BOLD);
+                      } else if (c.killStyle == 2) {
+                          t = t.formatted(Formatting.ITALIC);
+                      } else if (c.killStyle == 3) {
+                          t = t.formatted(Formatting.UNDERLINE);
+                      }
+                      return t;
+                  }
+
+                  public static void onAttack(PlayerEntity p) {
+                      target = p;
+                      targetAge = 0;
+                  }
+
+                  public static void tick(MinecraftClient mc) {
+                      if (mc.player == null) {
+                          return;
+                      }
+                      if (!mc.player.isAlive()) {
+                          streak = 0;
+                          target = null;
+                          return;
+                      }
+                      if (target == null) {
+                          return;
+                      }
+                      targetAge++;
+                      if (!target.isAlive() || target.isRemoved()) {
+                          if (targetAge < 200 && Config.get().killStreak) {
+                              streak++;
+                              KillSound.play();
+                              mc.inGameHud.setOverlayMessage(label(streak), false);
+                          }
+                          target = null;
+                      } else if (targetAge > 200) {
+                          target = null;
+                      }
+                  }
+              }
+
+              public static final class KillStreakScreen extends Screen {
+                  private final Screen parent;
+                  private int cardX;
+                  private int cardY;
+                  private int cardW;
+                  private int cardH;
+
+                  public KillStreakScreen(Screen parent) {
+                      super(Text.literal("Killstreak"));
+                      this.parent = parent;
+                  }
+
+                  private void btn(int x, int y, int w, int h, Runnable r) {
+                      ButtonWidget b = ButtonWidget.builder(Text.empty(), btn -> r.run()).dimensions(x, y, w, h).build();
+                      b.setAlpha(0f);
+                      this.addDrawableChild(b);
+                  }
+
+                  @Override
+                  protected void init() {
+                      Config c = Config.get();
+                      cardW = Math.min(240, this.width - 24);
+                      cardH = 240;
+                      cardX = (this.width - cardW) / 2;
+                      cardY = Math.max(30, (this.height - cardH) / 2 - 6);
+                      int x = cardX + 8;
+                      int w = cardW - 16;
+                      int y = cardY + 34;
+                      btn(x, y, w, 20, () -> {
+                          c.killStreak = !c.killStreak;
+                          Config.save();
+                      });
+                      this.addDrawableChild(new GlassSlider(x, y + 22, w, 20, "Volume suara", 0, 100, c.killSoundVolume,
+                              v -> c.killSoundVolume = v));
+                      btn(x, y + 44, w, 20, () -> {
+                          c.killStyle = (c.killStyle + 1) % KillStreak.STYLES.length;
+                          Config.save();
+                      });
+                      btn(x, y + 66, w, 20, () -> {
+                          c.killColor = (c.killColor + 1) % KillStreak.COLORS.length;
+                          Config.save();
+                      });
+                      btn(x, y + 88, w, 20, () -> {
+                          List<String> opts = new ArrayList<>();
+                          opts.add("");
+                          opts.addAll(KillSound.names());
+                          int i = opts.indexOf(c.killSoundFile);
+                          i = (i < 0 ? 0 : i + 1) % opts.size();
+                          c.killSoundFile = opts.get(i);
+                          Config.save();
+                      });
+                      btn(x, y + 110, w, 20, KillSound::play);
+                      btn(x, y + 132, w, 20, () -> {
+                          if (this.client != null && this.client.inGameHud != null) {
+                              this.client.inGameHud.setOverlayMessage(KillStreak.label(3), false);
+                          }
+                      });
+                      btn(x, cardY + cardH - 28, w, 20, this::close);
+                  }
+
+                  private static String soundLabel(Config c) {
+                      if (c.killSoundFile == null || c.killSoundFile.isEmpty()) {
+                          return "Acak";
+                      }
+                      String n = c.killSoundFile;
+                      return n.length() > 14 ? n.substring(0, 13) + "." : n;
+                  }
+
+                  @Override
+                  public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
+                  }
+
+                  @Override
+                  public void render(DrawContext c, int mx, int my, float delta) {
+                      Config cfg = Config.get();
+                      c.fill(0, 0, this.width, this.height, 0x66000000);
+                      GlassKit.card(c, this.textRenderer, cardX, cardY, cardW, cardH, "Killstreak", GlassKit.BLUE);
+                      int x = cardX + 8;
+                      int w = cardW - 16;
+                      int y = cardY + 34;
+                      GlassKit.toggle(c, this.textRenderer, mx, my, x, y, w, 20, "Killstreak", cfg.killStreak);
+                      GlassKit.action(c, this.textRenderer, mx, my, x, y + 44, w, 20, "Gaya teks",
+                              KillStreak.STYLES[cfg.killStyle]);
+                      GlassKit.action(c, this.textRenderer, mx, my, x, y + 66, w, 20, "Warna",
+                              KillStreak.COLOR_NAMES[cfg.killColor]);
+                      GlassKit.action(c, this.textRenderer, mx, my, x, y + 88, w, 20, "Suara", soundLabel(cfg));
+                      GlassKit.action(c, this.textRenderer, mx, my, x, y + 110, w, 20, "Tes suara", "");
+                      GlassKit.action(c, this.textRenderer, mx, my, x, y + 132, w, 20, "Tes teks", "");
+                      GlassKit.row(c, this.textRenderer, x, cardY + cardH - 28, w, 20, "< Kembali", GlassKit.hov(mx, my, x, cardY + cardH - 28, w, 20));
+                      super.render(c, mx, my, delta);
+                  }
+
+                  @Override
+                  public boolean shouldPause() {
+                      return false;
+                  }
+
+                  @Override
+                  public void close() {
+                      Config.save();
+                      if (this.client != null) {
+                          this.client.setScreen(this.parent);
+                      }
+                  }
+              }
+
+              public static final class AccountScreen extends Screen {
+                  private static final int PER = 6;
+                  private final Screen parent;
+                  private TextFieldWidget field;
+                  private String filter = "";
+                  private String status = "";
+                  private int accPage = 0;
+                  private int cardX;
+                  private int cardY;
+                  private int cardW;
+                  private int cardH;
+
+                  public AccountScreen(Screen parent) {
+                      super(Text.literal("Akun"));
+                      this.parent = parent;
+                  }
+
+                  private void btn(int x, int y, int w, int h, Runnable r) {
+                      ButtonWidget b = ButtonWidget.builder(Text.empty(), btn -> r.run()).dimensions(x, y, w, h).build();
+                      b.setAlpha(0f);
+                      this.addDrawableChild(b);
+                  }
+
+                  private List<String> filtered() {
+                      String f = filter == null ? "" : filter.toLowerCase();
+                      List<String> r = new ArrayList<>();
+                      for (String a : Config.get().accounts) {
+                          if (f.isEmpty() || a.toLowerCase().contains(f)) {
+                              r.add(a);
+                          }
+                      }
+                      return r;
+                  }
+
+                  @Override
+                  protected void init() {
+                      cardW = Math.min(260, this.width - 24);
+                      cardH = 250;
+                      cardX = (this.width - cardW) / 2;
+                      cardY = Math.max(30, (this.height - cardH) / 2 - 6);
+                      int x = cardX + 10;
+                      int w = cardW - 20;
+
+                      field = new TextFieldWidget(this.textRenderer, x, cardY + 34, w - 62, 20, Text.literal("Nama"));
+                      field.setMaxLength(16);
+                      field.setPlaceholder(Text.literal("Ketik nama"));
+                      field.setText(filter);
+                      field.setChangedListener(t -> {
+                          filter = t;
+                          accPage = 0;
+                          this.clearAndInit();
+                      });
+                      this.addDrawableChild(field);
+                      btn(x + w - 58, cardY + 34, 58, 20, this::addAccount);
+
+                      List<String> list = filtered();
+                      int pages = Math.max(1, (list.size() + PER - 1) / PER);
+                      accPage = Math.max(0, Math.min(accPage, pages - 1));
+                      for (int i = 0; i < PER; i++) {
+                          int idx = accPage * PER + i;
+                          if (idx >= list.size()) {
+                              break;
+                          }
+                          String name = list.get(idx);
+                          int y = cardY + 64 + i * 22;
+                          btn(x, y, w - 26, 20, () -> select(name));
+                          btn(x + w - 22, y, 22, 20, () -> delete(name));
+                      }
+                      int ny = cardY + cardH - 56;
+                      btn(x, ny, 40, 20, () -> {
+                          if (accPage > 0) {
+                              accPage--;
+                              this.clearAndInit();
+                          }
+                      });
+                      btn(x + w - 40, ny, 40, 20, () -> {
+                          if (accPage < pages - 1) {
+                              accPage++;
+                              this.clearAndInit();
+                          }
+                      });
+                      btn(x, cardY + cardH - 28, w, 20, this::close);
+                  }
+
+                  private void addAccount() {
+                      String n = field.getText().trim();
+                      List<String> acc = Config.get().accounts;
+                      if (!Accounts.valid(n)) {
+                          status = "Nama: 1-16 karakter (huruf, angka, _)";
+                          return;
+                      }
+                      if (acc.size() >= 500) {
+                          status = "Maksimal 500 akun";
+                          return;
+                      }
+                      for (String a : acc) {
+                          if (a.equalsIgnoreCase(n)) {
+                              status = "Akun sudah ada";
+                              return;
+                          }
+                      }
+                      acc.add(n);
+                      Config.save();
+                      status = "Ditambahkan: " + n;
+                      filter = "";
+                      this.clearAndInit();
+                  }
+
+                  private void delete(String name) {
+                      Config.get().accounts.remove(name);
+                      Config.save();
+                      status = "Dihapus: " + name;
+                      this.clearAndInit();
+                  }
+
+                  private void select(String name) {
+                      try {
+                          Accounts.switchTo(name);
+                          this.close();
+                      } catch (Throwable t) {
+                          status = "Gagal: " + t.getMessage();
+                      }
+                  }
+
+                  @Override
+                  public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
+                  }
+
+                  @Override
+                  public void render(DrawContext c, int mx, int my, float delta) {
+                      c.fill(0, 0, this.width, this.height, 0x66000000);
+                      GlassKit.card(c, this.textRenderer, cardX, cardY, cardW, cardH, "Akun", GlassKit.BLUE);
+                      int x = cardX + 10;
+                      int w = cardW - 20;
+                      List<String> list = filtered();
+                      int pages = Math.max(1, (list.size() + PER - 1) / PER);
+                      String cur = Accounts.currentName();
+                      for (int i = 0; i < PER; i++) {
+                          int idx = accPage * PER + i;
+                          if (idx >= list.size()) {
+                              break;
+                          }
+                          String name = list.get(idx);
+                          int y = cardY + 64 + i * 22;
+                          boolean active = name.equals(cur);
+                          GlassKit.box(c, x, y, x + w - 26, y + 20, active ? 0x553B82F6 : 0x22FFFFFF);
+                          c.drawTextWithShadow(this.textRenderer, Text.literal((active ? "> " : "") + name), x + 6, y + 6, 0xFFFFFFFF);
+                          GlassKit.box(c, x + w - 22, y, x + w, y + 20, 0x33FF5555);
+                          c.drawCenteredTextWithShadow(this.textRenderer, Text.literal("X"), x + w - 11, y + 6, 0xFFFFFFFF);
+                      }
+                      int ny = cardY + cardH - 56;
+                      c.drawTextWithShadow(this.textRenderer, Text.literal("Tambah"), x + w - 58 + 12, cardY + 40, 0x00FFFFFF);
+                      GlassKit.box(c, x + w - 58, cardY + 34, x + w, cardY + 54, GlassKit.BLUE);
+                      c.drawCenteredTextWithShadow(this.textRenderer, Text.literal("Tambah"), x + w - 29, cardY + 40, 0xFFFFFFFF);
+                      GlassKit.box(c, x, ny, x + 40, ny + 20, 0x33FFFFFF);
+                      c.drawCenteredTextWithShadow(this.textRenderer, Text.literal("<"), x + 20, ny + 6, 0xFFFFFFFF);
+                      GlassKit.box(c, x + w - 40, ny, x + w, ny + 20, 0x33FFFFFF);
+                      c.drawCenteredTextWithShadow(this.textRenderer, Text.literal(">"), x + w - 20, ny + 6, 0xFFFFFFFF);
+                      c.drawCenteredTextWithShadow(this.textRenderer,
+                              Text.literal((accPage + 1) + "/" + pages + "  |  " + Config.get().accounts.size() + "/500"),
+                              x + w / 2, ny + 6, 0xFFBFC5CE);
+                      c.drawCenteredTextWithShadow(this.textRenderer, Text.literal(status), this.width / 2, cardY + cardH + 8, 0xFFAAAAAA);
+                      GlassKit.row(c, this.textRenderer, x, cardY + cardH - 28, w, 20, "< Kembali",
+                              GlassKit.hov(mx, my, x, cardY + cardH - 28, w, 20));
+                      super.render(c, mx, my, delta);
+                  }
+
+                  @Override
+                  public boolean shouldPause() {
+                      return false;
+                  }
+
+                  @Override
+                  public void close() {
                       if (this.client != null) {
                           this.client.setScreen(this.parent);
                       }
@@ -3244,11 +4171,13 @@ jobs:
               }
           }
           TS_EOF_8
+          mkdir -p src/main/resources/assets/transparentskin/textures/gui
+          echo 'iVBORw0KGgoAAAANSUhEUgAAAQAAAADzCAYAAABpA8hlAAAWfmNhQlgAABZ+anVtYgAAAB5qdW1kYzJwYQARABCAAACqADibcQNjMnBhAAAAFlhqdW1iAAAAR2p1bWRjMm1hABEAEIAAAKoAOJtxA3VybjpjMnBhOjg2NmMwZTczLTM3M2EtNGUzZC1iMjE5LTRmOTIwNjVjOTUxYQAAAAOTanVtYgAAAClqdW1kYzJhcwARABCAAACqADibcQNjMnBhLmFzc2VydGlvbnMAAAAAuGp1bWIAAABEanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5pbmdyZWRpZW50LnYzAAAAABhjMnNoD2/zRW71E1ommA1KLD2G5QAAAGxjYm9yo2lkYzpmb3JtYXRpaW1hZ2UvcG5namluc3RhbmNlSUR4LHhtcDppaWQ6ZDY4ZDZiNDUtN2UzYy00NmYxLWI5ZDktMTg0YjYwOTFjZmVibHJlbGF0aW9uc2hpcGhwYXJlbnRPZgAAAeJqdW1iAAAAQWp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuYWN0aW9ucy52MgAAAAAYYzJzaOclgJeBAEI+R4SnGEtJqMgAAAGZY2JvcqJnYWN0aW9uc4KiZmFjdGlvbmtjMnBhLm9wZW5lZGpwYXJhbWV0ZXJzoWtpbmdyZWRpZW50c4GiY3VybHgtc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5pbmdyZWRpZW50LnYzZGhhc2hYIHLi/ZNCiC8j08TiWKXAMfORizeLE7kcg9bgyk5X0E8spGZhY3Rpb254HWNvbS5hbnRocm9waWMuY2xhdWRlLnByb3ZpZGVkanBhcmFtZXRlcnOheB9jb20uYW50aHJvcGljLm9yaWdpbi1jb25maWRlbmNlZ3Vua25vd25rZGVzY3JpcHRpb254ZkNsYXVkZSBwcm92aWRlZCB0aGlzIGZpbGUgYXQgdGhlIHJlcXVlc3Qgb2YgYSB1c2VyIGFuZCBtYXkgaGF2ZSBjcmVhdGVkIG9yIG1vZGlmaWVkIHRoZSBmaWxlIGNvbnRlbnRzLm1zb2Z0d2FyZUFnZW50oWRuYW1lZkNsYXVkZXJhbGxBY3Rpb25zSW5jbHVkZWT1AAAAyGp1bWIAAABAanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5oYXNoLmRhdGEAAAAAGGMyc2j1in4eFYZcbBcd2gBPXIhDAAAAgGNib3KlY2FsZ2ZzaGEyNTZjcGFkTQAAAAAAAAAAAAAAAABkaGFzaFggNvULyOpFJPe5xNavhoe+BvfsbQX2rjuNf3sUcZ0B6WlkbmFtZW5qdW1iZiBtYW5pZmVzdGpleGNsdXNpb25zgaJlc3RhcnQYIWZsZW5ndGgZFooAAAI+anVtYgAAACdqdW1kYzJjbAARABCAAACqADibcQNjMnBhLmNsYWltLnYyAAAAAg9jYm9ypWNhbGdmc2hhMjU2aXNpZ25hdHVyZXhNc2VsZiNqdW1iZj0vYzJwYS91cm46YzJwYTo4NjZjMGU3My0zNzNhLTRlM2QtYjIxOS00ZjkyMDY1Yzk1MWEvYzJwYS5zaWduYXR1cmVqaW5zdGFuY2VJRHgseG1wOmlpZDplMTEwZmY3MS01MDE3LTQ4YWQtODA2NS01Mjg1YjE3NDZmMmRyY3JlYXRlZF9hc3NlcnRpb25zg6JjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFggcuL9k0KILyPTxOJYpcAx85GLN4sTuRyD1uDKTlfQTyyiY3VybHgqc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5hY3Rpb25zLnYyZGhhc2hYIOLRDfftir0vpZoKVlqO6beHPilDwZgbK3EYsCrHA0QGomN1cmx4KXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaGFzaC5kYXRhZGhhc2hYIDHgMm31KPT/DgbI8RvhbApjFs8NVsZ9MGjTlpC7w5FWdGNsYWltX2dlbmVyYXRvcl9pbmZvo2RuYW1lb0FudGhyb3BpYyBGaWxlc2d2ZXJzaW9uZTEuMC4wa3NwZWNWZXJzaW9uZTIuNC4wAAAQOGp1bWIAAAAoanVtZGMyY3MAEQAQgAAAqgA4m3EDYzJwYS5zaWduYXR1cmUAAAAQCGNib3LShFkCEqIBJhghWQIKMIICBjCCAY2gAwIBAgIUQOWgCu7COdC+uIP6BkIFPWdVEwAwCgYIKoZIzj0EAwMwSTEXMBUGA1UEChMOQW50aHJvcGljLCBQQkMxLjAsBgNVBAMTJUFudGhyb3BpYyBDb250ZW50IENyZWRlbnRpYWxzIFJvb3QgQ0EwHhcNMjYwODA3MTg0MzU2WhcNMjgwODA2MTk0MzU2WjBEMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEpMCcGA1UEAxMgQW50aHJvcGljIENsYXVkZSBDb250ZW50IFNpZ25pbmcwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASYegpry1AYBRTVNL1CpTlbROnY3dey+UrsF9C3phYrATN3ZHf93Mo8RQN0KOUuOn19P4oWNFWe5n2/She9N7eTo1gwVjAOBgNVHQ8BAf8EBAMCB4AwFQYDVR0lBA4wDAYKKwYBBAGD6F4CATAMBgNVHRMBAf8EAjAAMB8GA1UdIwQYMBaAFM5R4gSBTmRbI/jjxM+aPpzB11zCMAoGCCqGSM49BAMDA2cAMGQCMDFzHRSeAXrSy1WOzkbhPZ6Km2wGTmZ/2gK18k8BQGXyqz88Rdrz6CTX9flAnYNVxgIwcF9c3fVhqmJKpi+UhasNUMko69cyX6STPfta3Q8EjyzDjzoyrol46FP6VFHhvUcJoWNwYWRZDZ4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA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' | base64 -d > src/main/resources/assets/transparentskin/textures/gui/logo.png
 
       - name: Build
         run: gradle build --no-daemon
 
       - uses: actions/upload-artifact@v4
         with:
-          name: transparent-skin-1.21.11
+          name: flame-client-mc-1.21.11
           path: build/libs/*.jar
